@@ -1,7 +1,11 @@
 /**
  *  Fritz.Box (Connect)
  *
- *  Copyright 2017 Marian Mitschke
+ *  Copyright 2018 Marian Mitschke
+ *
+ *  Changelog:
+ *  12 / 14 / 2018
+ *	Fixed adding new devices
  *
  *  Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except
  *  in compliance with the License. You may obtain a copy of the License at:
@@ -104,30 +108,11 @@ def addDevices() {
 		def d
         
 		if (selectedDevice) {
-        	def childDev = getChildDevices()
-            
-           	if (childDev != null){
-        		childDev.each 
-                { dev ->
-                	def test = dev.deviceNetworkId.toString()
-                	
-                	def isMatch = test == selectedDevice.key.toString()
-                    
-                    if (isMatch)
-                    	d = dev
-                	
-                	log.debug("existing device network id: ${dev.deviceNetworkId} and comparing one: ${selectedDevice.key}! Comparison: ${isMatch}")
-        		}
-        	}
+        	d = getChildDevices(selectedDevice.key)
         }
         
-        if (!d)
-        	log.debug("No Match for ${selectedDevice.key}")
-        else
-        	log.debug("Match for ${selectedDevice.key} the device id is ${d.deviceNetworkId}")   
-        
         if (!d) {
-			log.debug "Adding Fritz.Box Device with AIN : ${selectedDevice.key}"
+			log.info "Adding Fritz.Box Device with AIN : ${selectedDevice.key}"
              
             addChildDevice("marianmitschke", "fritz-dect-200-connect", selectedDevice.key, null, [
 				"label": "${selectedDevice.value}",
@@ -152,7 +137,6 @@ def deviceListCallbackHandler(response){
     	    
         def devicelist = new XmlSlurper().parseText(data)
         
-        
         for (int i = 0; i < devicelist.device.size(); i++)
         {
         	def ain = devicelist.device[i].@identifier.toString().replace(" ", "")
@@ -163,18 +147,11 @@ def deviceListCallbackHandler(response){
             def power = devicelist.device[i].powermeter.power.toString()
             def temp = devicelist.device[i].temperature.celsius.toString()
                         
-            if (!devices."${ain}"){
-    			devices << ["${ain}": name]
+            if (!devices.containsKey(ain)){
+    			devices.put(ain, name)
     	    }
-            else
-            {
-            	if (devices."${ain}".value != name)
-                {
-                	devices."${ain}".value = name
-                }
-            }
             
-            def d = getChildDevices()?.find { it.deviceNetworkId == ain }
+            def d = getChildDevice(ain)
             
             if (d)
             {
@@ -211,41 +188,33 @@ def switchCmdCallbackHandler(response){
 
 def refreshDeviceCallbackHandler(response){
     if (checkResponse(response)){
-    	def child = state.child
-        
-        def d = getChildDevices()?.find { it.deviceNetworkId == child }
+        def d = getChildDevice(state.child)
     
     	def data = response.body
             
         def devicelist = new XmlSlurper().parseText(data)
-                
-        for (int i = 0; i < devicelist.device.size(); i++)
+        
+        def foundDevice = devicelist.device.find { device -> device.@identifier.toString().replace(" ", "") == state.child }
+        
+        if (foundDevice)
         {
-        	def ain = devicelist.device[i].@identifier.toString().replace(" ", "")
+            log.debug("matching ain found")
+            def switchstate = foundDevice.switch.state.toString() == "1" ? "on" : "off"
+            def energy = foundDevice.powermeter.energy.toString()
+            def power = foundDevice.powermeter.power.toString()
+            def temp = foundDevice.temperature.celsius.toString()
             
-            if (state.child == ain)
+            if (d.hasAttribute("switch"))
             {
-            	log.debug("matching ain found")
-            
-                     
-            	def switchstate = devicelist.device[i].switch.state.toString() == "1" ? "on" : "off"
-            	def energy = devicelist.device[i].powermeter.energy.toString()
-            	def power = devicelist.device[i].powermeter.power.toString()
-            	def temp = devicelist.device[i].temperature.celsius.toString()
-                
-                if (d.hasAttribute("switch"))
+            	def actualswitchstate = d.currentState("switch")?.stringValue
+                if (switchstate != actualswitchstate)
                 {
-                	def actualswitchstate = d.currentState("switch")?.stringValue
-                    if (switchstate != actualswitchstate)
-                    {
-                    	log.debug("triggering switch state - state was manually changed")
-                    	d.generateStateSwitch(switchstate == "on")
-                    }
+                	log.debug("triggering switch state - state was manually changed")
+                	d.generateStateSwitch(switchstate == "on")
                 }
-                
-                d.generateRefreshEvent([energy: energy, power: power, temperature: temp])
-            	return
             }
+            
+            d.generateRefreshEvent([energy: energy, power: power, temperature: temp])
         }
 	}
 }
@@ -286,7 +255,6 @@ private authenticate(){
     {
     	log.debug("authenticating now")
     	executeCommand("/login_sid.lua", authenticationRequestCallbackHandler)
-        
     }
 }
 
@@ -372,6 +340,7 @@ def getDevices() {
 }
 
 void getDeviceList() {
+	log.debug("getDeviceList()")
 	sendFritzCommand("getdevicelistinfos", deviceListCallbackHandler)
 }
 

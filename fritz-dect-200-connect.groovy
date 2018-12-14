@@ -127,8 +127,10 @@ def generateRefreshEvent(response){
     
     if (state.tempval)
     {
-    	if (state.tempval != tempval)
+    	if (state.tempval != tempval){
+    		state.tempval = tempval
         	tempStateChange = true
+        }
     }
     else
     {
