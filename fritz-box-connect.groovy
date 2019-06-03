@@ -108,7 +108,7 @@ def addDevices() {
 		def d
         
 		if (selectedDevice) {
-        	d = getChildDevices(selectedDevice.key)
+        	d = getChildDevice(selectedDevice.key)
         }
         
         if (!d) {
